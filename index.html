@@ -1,4 +1,4 @@
-              <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -11,7 +11,7 @@
 
     <!-- 2. Caçador de Erros -->
     <style>
-        #error-log { display: none; background: #fee2e2; color: #991b1b; padding: 20px; font-family: monospace; border-bottom: 2px solid red; }
+        #error-log { display: none; background: #fee2e2; color: #991b1b; padding: 20px; font-family: monospace; border-bottom: 2px solid red; z-index: 9999; position: relative; }
         .fade-in { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -19,13 +19,13 @@
         window.onerror = function(msg, url, lineNo, columnNo, error) {
             var errorLog = document.getElementById('error-log');
             errorLog.style.display = 'block';
-            errorLog.innerHTML += "<strong>Erro:</strong> " + msg + "<br><small>Linha: " + lineNo + "</small><br><br>";
+            errorLog.innerHTML += "<strong>Erro Detectado:</strong> " + msg + "<br><small>Linha: " + lineNo + "</small><br><hr class='border-red-300 my-2'>";
             return false;
         };
     </script>
 
     <!-- 3. React e Babel -->
-    <scipt src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -40,18 +40,16 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        
-const firebaseConfig = {
-  apiKey: "AIzaSyC7w5iUx-5O5NTrGYQFtXwajVySucFF_2U",
-  authDomain: "recepcao-ipa.firebaseapp.com",
-  projectId: "recepcao-ipa",
-  storageBucket: "recepcao-ipa.firebasestorage.app",
-  messagingSenderId: "525746313806",
-  appId: "1:525746313806:web:b68a60386d918a1c3b011f"
-};
-
-        
-                
+        // --- 🔴 CONFIGURAÇÃO FIREBASE (PREENCHA AQUI) ---
+        const firebaseConfig = {
+            apiKey: "COLE_SUA_API_KEY_AQUI",
+            authDomain: "SEU_PROJETO.firebaseapp.com",
+            projectId: "SEU_PROJECT_ID",
+            storageBucket: "SEU_BUCKET.appspot.com",
+            messagingSenderId: "NUMEROS",
+            appId: "NUMEROS"
+        };
+        // -----------------------------------------------
 
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
@@ -552,5 +550,3 @@ const firebaseConfig = {
 </html>
 
 
-
-                                
