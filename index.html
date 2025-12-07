@@ -25,7 +25,7 @@
     </script>
 
     <!-- 3. React e Babel -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <scipt src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
@@ -49,6 +49,9 @@ const firebaseConfig = {
   messagingSenderId: "525746313806",
   appId: "1:525746313806:web:b68a60386d918a1c3b011f"
 };
+
+        
+                
 
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
@@ -139,9 +142,9 @@ const firebaseConfig = {
                     const map = {};
                     snap.docs.forEach(d => {
                         const data = d.data();
-                        // Proteção: Só adiciona se tiver item válido
                         if (data && data.item) {
-                            map[data.item] = {id: d.id, minQty: data.minQty};
+                            // CORREÇÃO AQUI: Guardamos o item, o ID e a quantidade
+                            map[data.item] = { id: d.id, minQty: data.minQty, item: data.item };
                         }
                     });
                     setAlerts(map);
@@ -229,24 +232,20 @@ const firebaseConfig = {
                 } catch(err) { alert("Erro: " + err.message); }
             };
 
-            // Cálculos (Com Proteção)
+            // Cálculos
             const inventory = materials.reduce((acc, curr) => {
-                if (!curr.item) return acc; // Pula itens quebrados
+                if (!curr.item) return acc;
                 const name = curr.item.trim();
                 acc[name] = (acc[name] || 0) + (curr.type === 'entrada' ? curr.quantity : -curr.quantity);
                 return acc;
             }, {});
 
-            // Lógica de Histórico Filtrado
             const getFilteredHistory = () => {
                 if (!materials || !userProfile) return [];
-                
                 if (userProfile.role === 'admin') return materials;
-
                 if (userProfile.role === 'team') {
                     const now = new Date();
                     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                    
                     return materials.filter(m => {
                         if (!m.createdAt) return false;
                         const date = m.createdAt.toDate();
@@ -337,14 +336,17 @@ const firebaseConfig = {
 
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                                     {Object.entries(inventory).map(([item, qty]) => {
-                                        // PROTEÇÃO AQUI: Verifica se item e alerta existem antes de usar
-                                        const alertData = Object.values(alerts).find(a => a.item && a.item.toLowerCase() === item.toLowerCase());
+                                        // CORREÇÃO: Busca robusta do alerta (case insensitive)
+                                        const alertData = Object.values(alerts).find(a => 
+                                            a.item && a.item.toLowerCase() === item.toLowerCase()
+                                        );
                                         const isLow = alertData && qty <= alertData.minQty;
+                                        
                                         return (
                                             <div key={item} className={`bg-white p-3 rounded-xl shadow-sm border ${isLow ? 'border-red-300 bg-red-50' : 'border-slate-100'}`}>
                                                 <div className={`text-xs font-bold uppercase truncate ${isLow ? 'text-red-500' : 'text-slate-400'}`}>{item}</div>
                                                 <div className={`text-2xl font-bold ${isLow ? 'text-red-600' : 'text-slate-800'}`}>{qty}</div>
-                                                {isLow && <div className="text-xs text-red-500 mt-1"><i className="fa-solid fa-triangle-exclamation"></i> Baixo</div>}
+                                                {isLow && <div className="text-xs text-red-500 mt-1"><i className="fa-solid fa-triangle-exclamation"></i> Baixo (Min: {alertData.minQty})</div>}
                                             </div>
                                         );
                                     })}
@@ -550,8 +552,5 @@ const firebaseConfig = {
 </html>
 
 
-                  
-                
-                    
-                    
-                                        
+
+                                
