@@ -50,9 +50,6 @@ const firebaseConfig = {
   appId: "1:525746313806:web:b68a60386d918a1c3b011f"
 };
 
-
-        // -----------------------------------------------
-
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
@@ -81,14 +78,14 @@ const firebaseConfig = {
             const [newKitName, setNewKitName] = React.useState('');
             const [newKitItem, setNewKitItem] = React.useState({ name: '', qty: 1 });
             const [newKitIngredients, setNewKitIngredients] = React.useState([]);
-            const [editingKitId, setEditingKitId] = React.useState(null); // ID do kit sendo editado
+            const [editingKitId, setEditingKitId] = React.useState(null);
 
             const [rosterForm, setRosterForm] = React.useState({ date: '', time: '', team: '', leader: '' });
             const [alertForm, setAlertForm] = React.useState({ item: '', minQty: 10 });
             
             const [moveType, setMoveType] = React.useState('single');
             const [showConfigPanel, setShowConfigPanel] = React.useState(false);
-            const [showHistory, setShowHistory] = React.useState(false); // Toggle Histórico
+            const [showHistory, setShowHistory] = React.useState(false); 
             const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
             // --- AUTH ---
@@ -196,9 +193,7 @@ const firebaseConfig = {
             const startEditKit = (kit) => {
                 setEditingKitId(kit.id);
                 setNewKitName(kit.name);
-                // Clonar array para não editar por referência
                 setNewKitIngredients(kit.ingredients.map(i => ({...i})));
-                // Rolar para o topo (mobile)
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             };
 
@@ -213,14 +208,12 @@ const firebaseConfig = {
                 
                 try {
                     if (editingKitId) {
-                        // Atualizar Existente
                         await db.collection('kits').doc(editingKitId).update({
                             name: newKitName,
                             ingredients: newKitIngredients
                         });
                         alert("Kit atualizado!");
                     } else {
-                        // Criar Novo
                         await db.collection('kits').add({ 
                             name: newKitName, 
                             ingredients: newKitIngredients 
@@ -231,21 +224,19 @@ const firebaseConfig = {
                 } catch(err) { alert("Erro: " + err.message); }
             };
 
-            // Cálculos de Inventário
+            // Cálculos
             const inventory = materials.reduce((acc, curr) => {
                 const name = curr.item.trim();
                 acc[name] = (acc[name] || 0) + (curr.type === 'entrada' ? curr.quantity : -curr.quantity);
                 return acc;
             }, {});
 
-            // Lógica de Histórico Filtrado
+            // Lógica de Histórico Filtrado (COM PROTEÇÃO CONTRA ERRO)
             const getFilteredHistory = () => {
-                if (!materials) return [];
+                if (!materials || !userProfile) return [];
                 
-                // Se for Admin, retorna tudo
                 if (userProfile.role === 'admin') return materials;
 
-                // Se for Equipe (Team), filtrar saída do mês atual
                 if (userProfile.role === 'team') {
                     const now = new Date();
                     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -256,11 +247,8 @@ const firebaseConfig = {
                         return m.type === 'saida' && date >= startOfMonth;
                     });
                 }
-                return []; // Guest não vê histórico detalhado
+                return [];
             };
-
-            const filteredHistory = getFilteredHistory();
-
 
             // --- RENDER ---
             if (loading) return <div className="h-screen flex items-center justify-center text-slate-500">Carregando...</div>;
@@ -278,6 +266,9 @@ const firebaseConfig = {
             );
 
             if (!userProfile) return <div className="p-10 text-center">Criando perfil...</div>;
+
+            // Executar filtro só agora que temos certeza que userProfile existe
+            const filteredHistory = getFilteredHistory();
 
             return (
                 <div className="pb-20 font-sans">
@@ -567,4 +558,8 @@ const firebaseConfig = {
 </html>
 
 
-              
+  
+                                                        
+                                
+                                            
+                                                
