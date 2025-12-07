@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recepção Igreja IPA</title>
+    
+    <!-- 1. Carregar React e Tailwind via CDN (Internet) -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Ícones via Fonte (Substituindo Lucide para facilitar no mobile) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        // --- IMPORTS DO FIREBASE (Versão Web Modular) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { 
+            getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut 
+        } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { 
+            getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp, setDoc, updateDoc 
+        } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- 🔴 COLE SUA CONFIGURAÇÃO DO FIREBASE ABAIXO (DENTRO DAS CHAVES) ---
+        const firebaseConfig = {
+            apiKey: "COLE_SUA_API_KEY_AQUI",
+            authDomain: "SEU_PROJETO.firebaseapp.com",
+            projectId: "SEU_PROJECT_ID",
+            storageBucket: "SEU_BUCKET.appspot.com",
+            messagingSenderId: "NUMEROS",
+            appId: "NUMEROS"
+        };
+        // -----------------------------------------------------------------------
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+
+        // --- COMPONENTE PRINCIPAL (APP) ---
+        function App() {
+            const [currentUser, setCurrentUser] = React.useState(null);
+            const [userProfile, setUserProfile] = React.useState(null);
+            const [activeTab, setActiveTab] = React.useState('home');
+            const [loading, setLoading] = React.useState(true);
+            const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+
+            // Dados
+            const [materials, setMaterials] = React.useState([]);
+            const [roster, setRoster] = React.useState([]);
+            const [allUsers, setAllUsers] = React.useState([]);
+            const [alerts, setAlerts] = React.useState({});
+            const [kits, setKits] = React.useState([]);
+
+            // Formulários
+            const [matForm, setMatForm] = React.useState({ item: '', quantity: 1, type: 'saida' });
+            const [kitMoveForm, setKitMoveForm] = React.useState({ kitId: '', quantity: 1 });
+            const [newKitName, setNewKitName] = React.useState('');
+            const [newKitItem, setNewKitItem] = React.useState({ name: '', qty: 1 });
+            const [newKitIngredients, setNewKitIngredients] = React.useState([]);
+            const [rosterForm, setRosterForm] = React.useState({ date: '', time: '', team: '', leader: '' });
+            const [alertForm, setAlertForm] = React.useState({ item: '', minQty: 10 });
+            
+            // UI
+            const [moveType, setMoveType] = React.useState('single');
+            const [showConfigPanel, setShowConfigPanel] = React.useState(false);
+
+            // --- AUTH E INICIALIZAÇÃO ---
+            React.useEffect(() => {
+                const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        setCurrentUser(user);
+                        // Buscar perfil
+                        const unsubProfile = onSnapshot(doc(db, 'users_public', user.uid), (docSnap) => {
+                            if (docSnap.exists()) {
+                                setUserProfile(docSnap.data());
+                            } else {
+                                // Se não existe, cria como guest (ou admin se for o primeiro)
+                                checkFirstUser(user);
+                            }
+                            setLoading(false);
+                        });
+                        return () => unsubProfile();
+                    } else {
+                        setCurrentUser(null);
+                        setUserProfile(null);
+                        setLoading(false);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            // --- CARREGAR DADOS ---
+            React.useEffect(() => {
+                if (!currentUser) return;
+                
+                // Materiais
+                onSnapshot(query(collection(db, 'materials')), (snap) => {
+                    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                    setMaterials(data);
+                });
+
+                // Escala
+                onSnapshot(query(collection(db, 'roster')), (snap) => {
+                    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    data.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    setRoster(data);
+                });
+
+                // Kits
+                onSnapshot(collection(db, 'kits'), (snap) => setKits(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                
+                // Alertas
+                onSnapshot(collection(db, 'alerts'), (snap) => {
+                    const map = {};
+                    snap.docs.forEach(d => map[d.data().item] = {id: d.id, minQty: d.data().minQty});
+                    setAlerts(map);
+                });
+
+                // Usuários
+                onSnapshot(collection(db, 'users_public'), (snap) => setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+            }, [currentUser]);
+
+            // --- LÓGICA DE USUÁRIO ---
+            const checkFirstUser = async (user) => {
+                // Verifica se tem alguém no banco, se não tiver, vira admin
+                // Simplificação para mobile: Cria como guest, você edita no banco se precisar
+                // Ou melhor: Vamos ler a coleção de usuarios
+                // Como é assincrono, vamos criar como guest por padrão.
+                // O PRIMEIRO LOGIN deve ir no console do firebase e mudar role para 'admin' manualmente na primeira vez
+                // OU usar a lógica abaixo:
+                const profileData = {
+                    uid: user.uid,
+                    displayName: user.displayName,
+                    email: user.email,
+                    role: 'guest', // Mude para 'admin' manualmente no Firebase Console se for o primeiro
+                    photoURL: user.photoURL
+                };
+                await setDoc(doc(db, 'users_public', user.uid), profileData);
+            };
+
+            const handleGoogleLogin = async () => {
+                try {
+                    await signInWithPopup(auth, provider);
+                } catch (error) {
+                    alert("Erro no login: " + error.message);
+                }
+            };
+
+            const handleLogout = () => signOut(auth);
+
+            // --- AÇÕES ---
+            const handleMaterialSubmit = async (e) => {
+                e.preventDefault();
+                await addDoc(collection(db, 'materials'), {
+                    ...matForm,
+                    item: matForm.item.trim(),
+                    quantity: parseInt(matForm.quantity),
+                    createdAt: serverTimestamp(),
+                    createdBy: userProfile.displayName
+                });
+                alert("Salvo!");
+                setMatForm({...matForm, item: '', quantity: 1});
+            };
+
+            const handleKitSubmit = async (e) => {
+                e.preventDefault();
+                const kit = kits.find(k => k.id === kitMoveForm.kitId);
+                const multiplier = parseInt(kitMoveForm.quantity);
+                
+                kit.ingredients.forEach(async (ing) => {
+                    await addDoc(collection(db, 'materials'), {
+                        item: ing.name.trim(),
+                        quantity: ing.qty * multiplier,
+                        type: 'saida',
+                        createdAt: serverTimestamp(),
+                        createdBy: userProfile.displayName + ' (Kit)'
+                    });
+                });
+                alert("Baixa de kit realizada!");
+            };
+
+            const saveKit = async () => {
+                if(!newKitName || newKitIngredients.length === 0) return alert("Preencha o kit");
+                await addDoc(collection(db, 'kits'), { name: newKitName, ingredients: newKitIngredients });
+                setNewKitName(''); setNewKitIngredients([]); alert("Kit criado!");
+            };
+
+            // Helpers UI
+            const inventory = materials.reduce((acc, curr) => {
+                const name = curr.item.trim();
+                acc[name] = (acc[name] || 0) + (curr.type === 'entrada' ? curr.quantity : -curr.quantity);
+                return acc;
+            }, {});
+
+            if (loading) return <div className="h-screen flex items-center justify-center">Carregando...</div>;
+
+            if (!currentUser) {
+                return (
+                    <div className="flex flex-col h-screen items-center justify-center p-4">
+                        <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-sm w-full">
+                            <i className="fa-solid fa-users text-4xl text-blue-600 mb-4"></i>
+                            <h1 className="text-2xl font-bold mb-2">Recepção IPA</h1>
+                            <button onClick={handleGoogleLogin} className="w-full bg-slate-900 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2">
+                                <i className="fa-brands fa-google"></i> Entrar com Google
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!userProfile) return <div>Configurando perfil...</div>;
+
+            return (
+                <div className="pb-20">
+                    {/* NAV */}
+                    <nav className="bg-white shadow sticky top-0 z-50 p-4">
+                        <div className="max-w-4xl mx-auto flex justify-between items-center">
+                            <div className="font-bold text-lg text-slate-800"><i className="fa-solid fa-church text-blue-600 mr-2"></i>IPA</div>
+                            <div className="hidden md:flex gap-4">
+                                <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-blue-600 font-bold' : 'text-slate-500'}>Estoque</button>
+                                <button onClick={() => setActiveTab('roster')} className={activeTab === 'roster' ? 'text-blue-600 font-bold' : 'text-slate-500'}>Escala</button>
+                                {userProfile.role === 'admin' && <button onClick={() => setActiveTab('kits')} className={activeTab === 'kits' ? 'text-blue-600 font-bold' : 'text-slate-500'}>Kits</button>}
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold uppercase bg-slate-100 px-2 py-1 rounded">{userProfile.role}</span>
+                                <img src={userProfile.photoURL} className="w-8 h-8 rounded-full" />
+                                <button onClick={handleLogout} className="text-red-400"><i className="fa-solid fa-right-from-bracket"></i></button>
+                            </div>
+                        </div>
+                        {/* Mobile Tabs */}
+                        <div className="md:hidden flex justify-between mt-4 border-t pt-2">
+                            <button onClick={() => setActiveTab('home')} className={`flex-1 py-2 text-sm ${activeTab==='home'?'text-blue-600 font-bold':''}`}>Estoque</button>
+                            <button onClick={() => setActiveTab('roster')} className={`flex-1 py-2 text-sm ${activeTab==='roster'?'text-blue-600 font-bold':''}`}>Escala</button>
+                            {userProfile.role === 'admin' && <button onClick={() => setActiveTab('kits')} className={`flex-1 py-2 text-sm ${activeTab==='kits'?'text-blue-600 font-bold':''}`}>Kits</button>}
+                        </div>
+                    </nav>
+
+                    <main className="max-w-4xl mx-auto p-4 space-y-6">
+                        {/* TAB ESTOQUE */}
+                        {activeTab === 'home' && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-4">Estoque Atual</h2>
+                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                    {Object.entries(inventory).map(([item, qty]) => (
+                                        <div key={item} className="bg-white p-4 rounded-lg shadow border">
+                                            <div className="font-bold text-slate-700">{item}</div>
+                                            <div className={`text-2xl font-bold ${qty < 5 ? 'text-red-500' : 'text-slate-800'}`}>{qty}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {(userProfile.role === 'admin' || userProfile.role === 'team') && (
+                                    <div className="bg-white p-4 rounded-lg shadow mb-6">
+                                        <div className="flex gap-4 mb-4 border-b pb-2">
+                                            <button onClick={() => setMoveType('single')} className={moveType==='single'?'font-bold text-blue-600':''}>Item Avulso</button>
+                                            <button onClick={() => setMoveType('kit')} className={moveType==='kit'?'font-bold text-purple-600':''}>Baixa Kit</button>
+                                        </div>
+                                        
+                                        {moveType === 'single' ? (
+                                            <form onSubmit={handleMaterialSubmit} className="space-y-3">
+                                                <input placeholder="Item" value={matForm.item} onChange={e=>setMatForm({...matForm, item: e.target.value})} className="w-full p-2 border rounded" required />
+                                                <div className="flex gap-2">
+                                                    <input type="number" placeholder="Qtd" value={matForm.quantity} onChange={e=>setMatForm({...matForm, quantity: e.target.value})} className="w-24 p-2 border rounded" required />
+                                                    <select value={matForm.type} onChange={e=>setMatForm({...matForm, type: e.target.value})} className="flex-1 p-2 border rounded" disabled={userProfile.role !== 'admin'}>
+                                                        {userProfile.role === 'admin' && <option value="entrada">Entrada (+)</option>}
+                                                        <option value="saida">Saída (-)</option>
+                                                    </select>
+                                                </div>
+                                                <button className="w-full bg-blue-600 text-white p-2 rounded font-bold">Salvar</button>
+                                            </form>
+                                        ) : (
+                                            <form onSubmit={handleKitSubmit} className="space-y-3">
+                                                <select value={kitMoveForm.kitId} onChange={e=>setKitMoveForm({...kitMoveForm, kitId: e.target.value})} className="w-full p-2 border rounded" required>
+                                                    <option value="">Selecione o Kit...</option>
+                                                    {kits.map(k=><option key={k.id} value={k.id}>{k.name}</option>)}
+                                                </select>
+                                                <input type="number" placeholder="Qtd de Kits" value={kitMoveForm.quantity} onChange={e=>setKitMoveForm({...kitMoveForm, quantity: e.target.value})} className="w-full p-2 border rounded" required />
+                                                <button className="w-full bg-purple-600 text-white p-2 rounded font-bold">Dar Baixa</button>
+                                            </form>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* TAB KITS (ADMIN) */}
+                        {activeTab === 'kits' && (
+                            <div className="bg-white p-4 rounded-lg shadow">
+                                <h3 className="font-bold mb-4">Novo Kit</h3>
+                                <input placeholder="Nome do Kit" value={newKitName} onChange={e=>setNewKitName(e.target.value)} className="w-full p-2 border rounded mb-2" />
+                                <div className="flex gap-2 mb-2">
+                                    <input placeholder="Item" value={newKitItem.name} onChange={e=>setNewKitItem({...newKitItem, name: e.target.value})} className="flex-1 p-2 border rounded" />
+                                    <input type="number" placeholder="Qtd" value={newKitItem.qty} onChange={e=>setNewKitItem({...newKitItem, qty: e.target.value})} className="w-20 p-2 border rounded" />
+                                    <button onClick={()=>{setNewKitIngredients([...newKitIngredients, newKitItem]); setNewKitItem({name:'', qty:1})}} className="bg-slate-800 text-white px-3 rounded">+</button>
+                                </div>
+                                <div className="mb-4 text-sm text-slate-600">
+                                    {newKitIngredients.map((ing, i) => <div key={i}>{ing.qty}x {ing.name}</div>)}
+                                </div>
+                                <button onClick={saveKit} className="w-full bg-purple-600 text-white p-2 rounded font-bold">Salvar Kit</button>
+                                
+                                <h3 className="font-bold mt-8 mb-2">Kits Existentes</h3>
+                                {kits.map(k => (
+                                    <div key={k.id} className="border p-2 rounded mb-2 flex justify-between">
+                                        <span>{k.name}</span>
+                                        <button onClick={()=>deleteDoc(doc(db, 'kits', k.id))} className="text-red-500"><i className="fa-solid fa-trash"></i></button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* TAB ESCALA */}
+                        {activeTab === 'roster' && (
+                            <div>
+                                <h2 className="text-2xl font-bold mb-4">Escala</h2>
+                                {userProfile.role === 'admin' && (
+                                    <form onSubmit={async (e) => {
+                                        e.preventDefault();
+                                        await addDoc(collection(db, 'roster'), {...rosterForm, createdAt: serverTimestamp()});
+                                        setRosterForm({date:'', time:'', team:'', leader:''});
+                                    }} className="bg-white p-4 rounded-lg shadow mb-6 space-y-3">
+                                        <input type="date" value={rosterForm.date} onChange={e=>setRosterForm({...rosterForm, date: e.target.value})} className="w-full p-2 border rounded" required />
+                                        <input placeholder="Horário" value={rosterForm.time} onChange={e=>setRosterForm({...rosterForm, time: e.target.value})} className="w-full p-2 border rounded" required />
+                                        <input placeholder="Equipe" value={rosterForm.team} onChange={e=>setRosterForm({...rosterForm, team: e.target.value})} className="w-full p-2 border rounded" required />
+                                        <button className="w-full bg-slate-900 text-white p-2 rounded font-bold">Agendar</button>
+                                    </form>
+                                )}
+                                <div className="space-y-4">
+                                    {roster.map(r => (
+                                        <div key={r.id} className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
+                                            <div className="flex justify-between">
+                                                <span className="font-bold text-lg">{new Date(r.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                                                {userProfile.role === 'admin' && <button onClick={()=>deleteDoc(doc(db, 'roster', r.id))} className="text-red-400"><i className="fa-solid fa-trash"></i></button>}
+                                            </div>
+                                            <div className="text-slate-600">{r.time}</div>
+                                            <div className="mt-2">{r.team}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* ADMIN USERS LIST */}
+                        {userProfile.role === 'admin' && activeTab === 'home' && (
+                            <div className="mt-8 pt-8 border-t">
+                                <h3 className="font-bold mb-4">Gerenciar Usuários (Apenas Admin)</h3>
+                                {allUsers.map(u => (
+                                    <div key={u.id} className="flex justify-between items-center bg-white p-2 rounded mb-2 border">
+                                        <span className="text-sm truncate w-1/3">{u.displayName}</span>
+                                        <span className="text-xs bg-slate-100 px-1 rounded">{u.role}</span>
+                                        <div className="flex gap-1">
+                                            {u.role !== 'admin' && <button onClick={()=>updateDoc(doc(db, 'users_public', u.id), {role: 'admin'})} className="text-xs border p-1 rounded">Admin</button>}
+                                            {u.role !== 'team' && <button onClick={()=>updateDoc(doc(db, 'users_public', u.id), {role: 'team'})} className="text-xs border p-1 rounded">Equipe</button>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
